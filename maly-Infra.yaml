@@ -1,0 +1,376 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description:  This template deploys a VPC, with a pair of public and private subnets spread
+  across two Availability Zones. It deploys an Internet Gateway, with a default
+  route on the public subnets. It deploys a pair of NAT Gateways (one in each AZ),
+  and default routes for them in the private subnets.
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that will be prefixed to resource names
+    Type: String
+  VPC:
+    Description: Please enter the IP range (CIDR notation) for this VPC
+    Type: AWS::EC2::VPC::Id
+    ConstraintDescription: Select the vpc
+  PrivateSubnet1:
+    Description: enter the private subnet1
+    Type: AWS::EC2::Subnet::Id
+  PrivateSubnet2:
+    Description: enter the private subnet2
+    Type: AWS::EC2::Subnet::Id
+  #PrivateSubnet3:
+    #Description: enter the private subnet3
+    #Type: AWS::EC2::Subnet::Id
+  #PrivateSubnet4:
+    #Description: enter the private subnet4
+    #Type: AWS::EC2::Subnet::Id
+  PublicSubnet1:
+    Description: enter the public subnet1
+    Type: AWS::EC2::Subnet::Id
+  PublicSubnet2:
+    Description: enter the pulic subnet2
+    Type: AWS::EC2::Subnet::Id
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair
+  MyInstanceType:
+    Description: WebServer EC2 instance type in private subnet
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t2.nano, t2.micro, t2.small, t2.medium, t2.large]
+    ConstraintDescription: must be a valid EC2 instance type.
+  SSHLocation:
+    Description: The IP address range that can be used to SSH to the EC2 instances
+    Type: String
+    MinLength: 9
+    MaxLength: 18
+    Default: 0.0.0.0/0
+    AllowedPattern: (\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})
+    ConstraintDescription: must be a valid IP CIDR range of the form x.x.x.x/x.
+Mappings:
+  AWSRegionToAMI:
+    us-east-2:
+      AMIID: ami-0c64dd618a49aeee8
+    us-east-1:
+      AMIID: ami-00eb20669e0990cb4
+Resources:     
+  ELBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'SSH and Port 80'
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+
+  AppSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22 from ELB SG
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: !Ref 'SSHLocation'
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        SourceSecurityGroupId: !Ref ELBSecurityGroup
+
+  APPServer1:
+    Type: AWS::EC2::Instance
+    Properties:
+        ImageId:
+          !FindInMap
+                - AWSRegionToAMI
+                - !Ref AWS::Region
+                - AMIID
+        InstanceInitiatedShutdownBehavior: stop
+        InstanceType:
+          Ref: MyInstanceType
+        KeyName:
+          Ref: KeyName
+        IamInstanceProfile: "ssm-ec2-role"
+        Monitoring: 'true'
+        NetworkInterfaces:
+        - AssociatePublicIpAddress: 'false'
+          DeviceIndex: '0'
+          GroupSet:
+          - !Ref AppSecurityGroup
+          SubnetId:
+            Ref: PrivateSubnet1
+        Tenancy: default
+        Tags:
+            - Key: Name
+              Value: APPServer1
+        UserData:
+          Fn::Base64:                              # YAML makes userdata much cleaner
+            !Sub |
+                #!/bin/bash -xe
+                yum update -y
+                yum install httpd -y
+                cd /var/www/html
+                mkdir tablue
+                cd /var/www/html/tablue
+                echo "<html><h1>This is Tablue server!! in AvailabilityZone A</h1></html>" > index.html
+                chmod 755 index.html
+                service httpd start
+                chkconfig httpd on
+
+  APPServer2:
+    Type: AWS::EC2::Instance
+    Properties:
+        ImageId:
+          !FindInMap
+                - AWSRegionToAMI
+                - !Ref AWS::Region
+                - AMIID
+        InstanceInitiatedShutdownBehavior: stop
+        InstanceType: 
+          Ref: MyInstanceType
+        KeyName:
+          Ref: KeyName
+        IamInstanceProfile: "ssm-ec2-role"      
+        Monitoring: 'true'
+        NetworkInterfaces:
+        - AssociatePublicIpAddress: 'false'
+          DeviceIndex: '0'
+          GroupSet:
+          - !Ref AppSecurityGroup
+          SubnetId:
+            Ref: PrivateSubnet2
+        Tenancy: default
+        Tags:
+            - Key: Name
+              Value: APPServer2        
+        UserData:
+          Fn::Base64:                              # YAML makes userdata much cleaner
+            !Sub |
+                #!/bin/bash -xe
+                yum update -y
+                yum install httpd -y
+                cd /var/www/html
+                mkdir tablue
+                cd /var/www/html/tablue
+                echo "<html>This is Tablue server!! in AvailabilityZone B</html>" > index.html
+                chmod 755 index.html
+                service httpd start
+                chkconfig httpd on
+
+  APPServer3:
+    Type: AWS::EC2::Instance
+    Properties:
+        ImageId:
+          !FindInMap
+                - AWSRegionToAMI
+                - !Ref AWS::Region
+                - AMIID
+        InstanceInitiatedShutdownBehavior: stop
+        InstanceType:
+          Ref: MyInstanceType
+        KeyName:
+          Ref: KeyName
+        IamInstanceProfile: "ssm-ec2-role"
+        Monitoring: 'true'
+        NetworkInterfaces:
+        - AssociatePublicIpAddress: 'false'
+          DeviceIndex: '0'
+          GroupSet:
+          - !Ref AppSecurityGroup
+          SubnetId:
+            Ref: PrivateSubnet1
+        Tenancy: default
+        Tags:
+            - Key: Name
+              Value: APPServer3
+        UserData:
+          Fn::Base64:                              # YAML makes userdata much cleaner
+            !Sub |
+                #!/bin/bash -xe
+                yum install httpd -y
+                cd /var/www/html
+                mkdir sap
+                cd /var/www/html/sap
+                echo "<html><h1>This is SAPBOXi server!! in AvailabilityZone A</h1></html>" > index.html
+                chmod 755 index.html
+                service httpd start
+                chkconfig httpd on
+
+  APPServer4:
+    Type: AWS::EC2::Instance
+    Properties:
+        ImageId:
+          !FindInMap
+                - AWSRegionToAMI
+                - !Ref AWS::Region
+                - AMIID
+        InstanceInitiatedShutdownBehavior: stop
+        InstanceType: 
+          Ref: MyInstanceType
+        KeyName:
+          Ref: KeyName
+        IamInstanceProfile: "ssm-ec2-role"
+        Monitoring: 'true'
+        NetworkInterfaces:
+        - AssociatePublicIpAddress: 'false'
+          DeviceIndex: '0'
+          GroupSet:
+          - !Ref AppSecurityGroup
+          SubnetId:
+            Ref: PrivateSubnet2
+        Tenancy: default
+        Tags:
+            - Key: Name
+              Value: APPServer4
+        UserData:
+          Fn::Base64:                              # YAML makes userdata much cleaner
+            !Sub |
+                #!/bin/bash -xe
+                yum install httpd -y
+                cd /var/www/html
+                mkdir sap
+                cd /var/www/html/sap
+                echo "<html><h1>This is SAPBOXi server!! in AvailabilityZone B</h1></html>" > index.html
+                chmod 755 index.html
+                service httpd start
+                chkconfig httpd on
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+        Scheme: internet-facing # or internal
+        Subnets:
+        - Ref: PublicSubnet1
+        - Ref: PublicSubnet2
+        SecurityGroups:
+        - Ref: ELBSecurityGroup
+
+  TargetGroup1:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+        HealthCheckIntervalSeconds: 30
+        HealthCheckPath: /tablue/index.html
+        HealthCheckProtocol: HTTP
+        HealthCheckTimeoutSeconds: 15
+        HealthyThresholdCount: 5
+        Matcher:
+          HttpCode: '200'
+        Name: TargetGroup1
+        Port: 80
+        Protocol: HTTP
+        TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '20'
+        Targets:
+        - Id:
+            Ref: APPServer1
+          Port: 80
+        - Id:
+            Ref: APPServer2
+          Port: 80
+        UnhealthyThresholdCount: 3
+        VpcId:
+          Ref: 'VPC'
+        Tags:
+        - Key: Name
+          Value: Tabule-TargetGroup
+        - Key: Port
+          Value: 80
+
+  TargetGroup2:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+        HealthCheckIntervalSeconds: 30
+        HealthCheckPath: /sap/index.html
+        HealthCheckProtocol: HTTP
+        HealthCheckTimeoutSeconds: 15
+        HealthyThresholdCount: 5
+        Matcher:
+          HttpCode: '200'
+        Name: TargetGroup2
+        Port: 80
+        Protocol: HTTP
+        TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: '20'
+        Targets:
+        - Id:
+            Ref: APPServer3
+          Port: 80
+        - Id:
+            Ref: APPServer4
+          Port: 80
+        UnhealthyThresholdCount: 3
+        VpcId:
+          Ref: 'VPC'
+        Tags:
+        - Key: Name
+          Value: SAPBoxi-TargetGroup
+        - Key: Port
+          Value: 80
+          
+  ListenerRule1:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup1
+      Conditions:
+        - Field: path-pattern
+          Values:
+              - !Sub '/tablue/*'
+      ListenerArn: !Ref Listener
+      Priority: 1
+  ListenerRule2:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup2
+      Conditions:
+        - Field: path-pattern
+          Values:
+             - !Sub '/sap/*'
+      ListenerArn: !Ref Listener
+      Priority: 2
+  Listener:
+    Type: 'AWS::ElasticLoadBalancingV2::Listener'
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup1
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: '80'
+      Protocol: HTTP
+Outputs:
+  VPC:
+    Description: A reference to the created VPC
+    Value: !Ref VPC
+
+  PublicSubnets:
+    Description: A list of the public subnets
+    Value: !Join [ ",", [ !Ref PublicSubnet1, !Ref PublicSubnet2 ]]
+
+  PrivateSubnets:
+    Description: A list of the private subnets
+    Value: !Join [ ",", [ !Ref PrivateSubnet1, !Ref PrivateSubnet2 ]]
+
+  PublicSubnet1:
+    Description: A reference to the public subnet in the 1st Availability Zone
+    Value: !Ref PublicSubnet1
+
+  PublicSubnet2:
+    Description: A reference to the public subnet in the 2nd Availability Zone
+    Value: !Ref PublicSubnet2
+
+  PrivateSubnet1:
+    Description: A reference to the private subnet in the 1st Availability Zone
+    Value: !Ref PrivateSubnet1
+
+  PrivateSubnet2:
+    Description: A reference to the private subnet in the 2nd Availability Zone
+    Value: !Ref PrivateSubnet2
